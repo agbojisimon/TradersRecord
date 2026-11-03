@@ -1,0 +1,36 @@
+# Build output
+bin/
+obj/
+
+# IDE and editor state
+.vs/
+.idea/
+.vscode/
+*.user
+*.suo
+
+# Test and coverage output
+TestResults/
+coverage/
+
+# Local SQLite database files and sidecars
+*.db
+*.db-shm
+*.db-wal
+App_Data/
+
+# Local secrets, tokens and environment files
+.env
+.env.*
+*.secret
+secrets.json
+
+# Logs and OS metadata
+*.log
+.DS_Store
+Thumbs.db
+
+# Keep committed delivery files explicitly visible
+!global.json
+!packages.lock.json
+!.config/dotnet-tools.json
