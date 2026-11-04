@@ -17,22 +17,47 @@ builder.Services.AddControllers()
         // The public contract is camelCase and enum values are strings (sections 05 and 08).
         options.JsonSerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.CamelCase;
         options.JsonSerializerOptions.DictionaryKeyPolicy = JsonNamingPolicy.CamelCase;
-        options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter());
+        // Reject numeric enum values; the public contract uses names only.
+        options.JsonSerializerOptions.Converters.Add(
+            new JsonStringEnumConverter(allowIntegerValues: false));
     });
 
 // .NET 9's built-in OpenAPI generator produces /openapi/v1.json in Development.
 builder.Services.AddOpenApi();
 
-// Resolve the SQLite file against ContentRootPath so launching from another
-// working directory cannot accidentally create or read a different database.
+// Resolve relative SQLite paths against ContentRootPath so launching from another
+// working directory cannot select a different database. Absolute paths and
+// special SQLite data sources are preserved so configuration overrides work.
 var configuredConnectionString = builder.Configuration.GetConnectionString("DefaultConnection")
     ?? throw new InvalidOperationException(
         "Connection string 'DefaultConnection' is not configured.");
 
 var sqliteConnectionString = new SqliteConnectionStringBuilder(configuredConnectionString);
-var dataDirectory = Path.Combine(builder.Environment.ContentRootPath, "App_Data");
-Directory.CreateDirectory(dataDirectory);
-sqliteConnectionString.DataSource = Path.Combine(dataDirectory, "traderrecords.db");
+var configuredDataSource = sqliteConnectionString.DataSource;
+
+if (string.IsNullOrWhiteSpace(configuredDataSource))
+{
+    throw new InvalidOperationException(
+        "Connection string 'DefaultConnection' must specify a SQLite Data Source.");
+}
+
+if (!IsSpecialSqliteDataSource(configuredDataSource) && !Path.IsPathRooted(configuredDataSource))
+{
+    sqliteConnectionString.DataSource = Path.GetFullPath(
+        Path.Combine(builder.Environment.ContentRootPath, configuredDataSource));
+}
+
+var resolvedDataSource = sqliteConnectionString.DataSource;
+
+if (!IsSpecialSqliteDataSource(resolvedDataSource))
+{
+    var databaseDirectory = Path.GetDirectoryName(resolvedDataSource);
+
+    if (!string.IsNullOrEmpty(databaseDirectory))
+    {
+        Directory.CreateDirectory(databaseDirectory);
+    }
+}
 
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseSqlite(sqliteConnectionString.ConnectionString));
@@ -49,6 +74,8 @@ if (builder.Environment.IsDevelopment())
 }
 
 var app = builder.Build();
+
+app.Logger.LogInformation("Using SQLite database at {DatabasePath}", resolvedDataSource);
 
 if (app.Environment.IsDevelopment())
 {
@@ -75,3 +102,7 @@ if (app.Environment.IsDevelopment())
 app.MapControllers();
 
 app.Run();
+
+static bool IsSpecialSqliteDataSource(string dataSource) =>
+    dataSource.Equals(":memory:", StringComparison.OrdinalIgnoreCase)
+    || dataSource.StartsWith("file:", StringComparison.OrdinalIgnoreCase);

@@ -122,14 +122,15 @@ public sealed class DevelopmentSeeder
     {
         var normalizedEmail = email.ToUpperInvariant();
 
-        // Match either the deterministic identity or the unique email so a
-        // previously created account is never overwritten or duplicated.
+        // Match either the deterministic identity or the unique email, then verify
+        // that the existing row is the expected seed identity before reusing it.
         var existing = await _db.Users.FirstOrDefaultAsync(
             user => user.Id == id || user.NormalizedEmail == normalizedEmail,
             ct);
 
         if (existing is not null)
         {
+            EnsureSeedUserMatches(existing, id, normalizedEmail, role);
             return existing;
         }
 
@@ -157,12 +158,15 @@ public sealed class DevelopmentSeeder
         DateTime nowUtc,
         CancellationToken ct)
     {
+        // A business may already exist by deterministic ID or by its owner. Reuse
+        // it only when both the identity and ownership still match the seed.
         var existing = await _db.Businesses.FirstOrDefaultAsync(
             business => business.Id == id || business.OwnerUserId == owner.Id,
             ct);
 
         if (existing is not null)
         {
+            EnsureSeedBusinessMatches(existing, id, owner);
             return existing;
         }
 
@@ -178,6 +182,52 @@ public sealed class DevelopmentSeeder
         _db.Businesses.Add(business);
         await _db.SaveChangesAsync(ct);
         return business;
+    }
+
+    private static void EnsureSeedUserMatches(
+        User existing,
+        Guid expectedId,
+        string expectedNormalizedEmail,
+        UserRole expectedRole)
+    {
+        var matches =
+            existing.Id == expectedId
+            && string.Equals(
+                existing.NormalizedEmail,
+                expectedNormalizedEmail,
+                StringComparison.Ordinal)
+            && existing.Role == expectedRole;
+
+        if (matches)
+        {
+            return;
+        }
+
+        throw new InvalidOperationException(
+            $"Development seed user collision for '{existing.Email}'. " +
+            $"Expected id {expectedId}, normalized email '{expectedNormalizedEmail}', role {expectedRole}; " +
+            $"found id {existing.Id}, normalized email '{existing.NormalizedEmail}', role {existing.Role}.");
+    }
+
+    private static void EnsureSeedBusinessMatches(
+        Business existing,
+        Guid expectedId,
+        User expectedOwner)
+    {
+        var matches =
+            existing.Id == expectedId
+            && existing.OwnerUserId == expectedOwner.Id
+            && string.Equals(existing.Currency, "NGN", StringComparison.Ordinal);
+
+        if (matches)
+        {
+            return;
+        }
+
+        throw new InvalidOperationException(
+            $"Development seed business collision for '{existing.Name}'. " +
+            $"Expected id {expectedId}, owner {expectedOwner.Id}, currency NGN; " +
+            $"found id {existing.Id}, owner {existing.OwnerUserId}, currency '{existing.Currency}'.");
     }
 
     private async Task<int> EnsureTransactionsAsync(

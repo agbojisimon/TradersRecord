@@ -26,11 +26,15 @@ dotnet run --project TraderRecords.Api --launch-profile http
 The HTTP profile binds only to loopback on `http://localhost:5080`.
 
 In Development, startup applies the committed EF migration and runs the
-idempotent seeder. The SQLite database is stored at:
+idempotent seeder. The default SQLite database is stored at:
 
 ```text
 TraderRecords.Api/App_Data/traderrecords.db
 ```
+
+A relative `Data Source` is resolved against the API content root. An absolute
+path or a `ConnectionStrings__DefaultConnection` environment override is
+preserved, so a different database file can be selected without changing code.
 
 ## Verify the API
 
