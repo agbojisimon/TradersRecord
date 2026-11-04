@@ -1,4 +1,5 @@
 @HostAddress = http://localhost:5080
+@Token = <paste-access-token-here>
 
 GET {{HostAddress}}/api/health
 Accept: application/json
@@ -7,5 +8,33 @@ Accept: application/json
 
 GET {{HostAddress}}/openapi/v1.json
 Accept: application/json
+
+###
+
+POST {{HostAddress}}/api/auth/register
+Content-Type: application/json
+
+{
+  "fullName": "Test Trader",
+  "email": "trader3@example.test",
+  "password": "Trader3!Demo2026",
+  "businessName": "Test Trader Stores"
+}
+
+###
+
+POST {{HostAddress}}/api/auth/login
+Content-Type: application/json
+
+{
+  "email": "trader1@example.test",
+  "password": "Trader1!Demo2026"
+}
+
+###
+
+GET {{HostAddress}}/api/health
+Accept: application/json
+Authorization: Bearer {{Token}}
 
 ###

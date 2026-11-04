@@ -1,10 +1,12 @@
 # Trader Records API
 
-Gate 2 persistence slice for the Trader Records API. The repository contains one
-ASP.NET Core 9 controller-based API project organised into `API`, `Application`,
-`Infrastructure`, and `Domain` folders. Entities, EF Core SQLite mappings, the
-initial migration, and idempotent development seeding are implemented.
-Authentication, sync, summaries, and consent endpoints are not implemented yet.
+Gate 3 authentication slice for the Trader Records API. The repository contains
+one ASP.NET Core 9 controller-based API project organised into `API`,
+`Application`, `Infrastructure`, and `Domain` folders. Entities, EF Core SQLite
+mappings, the initial migration, idempotent development seeding, registration,
+login, JWT authentication, and shared ProblemDetails error handling are
+implemented. Transaction sync, summaries, and consent endpoints are not
+implemented yet.
 
 ## Prerequisites
 
@@ -20,6 +22,19 @@ dotnet --version
 dotnet tool restore
 dotnet restore
 dotnet build
+```
+
+Configure a JWT signing key outside source control before starting the API:
+
+```powershell
+dotnet user-secrets init --project TraderRecords.Api
+dotnet user-secrets set "Jwt:SigningKey" "<at-least-32-random-bytes>" --project TraderRecords.Api
+```
+
+Alternatively, set the `Jwt__SigningKey` environment variable. Startup fails
+with a clear configuration error when the key is missing or shorter than 32 bytes.
+
+```powershell
 dotnet run --project TraderRecords.Api --launch-profile http
 ```
 
@@ -43,6 +58,11 @@ With the process running, open or request:
 - Scalar UI: `http://localhost:5080/scalar/` (`/scalar` redirects here)
 - OpenAPI document: `http://localhost:5080/openapi/v1.json`
 - Liveness endpoint: `http://localhost:5080/api/health`
+- Register: `POST http://localhost:5080/api/auth/register`
+- Login: `POST http://localhost:5080/api/auth/login`
+
+Scalar includes a bearer authentication field. Paste the `accessToken` returned
+by register or login to call future protected endpoints.
 
 After the first successful restore, `TraderRecords.Api/packages.lock.json` is
 committed. Reviewers can then verify the locked graph with:
@@ -82,14 +102,19 @@ Remove-Item -LiteralPath "TraderRecords.Api/App_Data/traderrecords.db",
 Restarting the API recreates and reseeds the database. **This erases local demo
 records.** There is no public reset endpoint.
 
-## Later gates
+## Authentication behaviour
 
-Authentication is not implemented yet. When it is added, configure the JWT
-signing key outside source control, for example:
+Registration creates a Trader and one business in a single database transaction.
+Public registration cannot create a Lender. Duplicate normalised emails return
+`409 EMAIL_IN_USE`; concurrent duplicate registrations are also resolved to the
+same response by the unique email index.
 
-```powershell
-dotnet user-secrets init --project TraderRecords.Api
-dotnet user-secrets set "Jwt:SigningKey" "<at-least-32-random-bytes>" --project TraderRecords.Api
-```
+Login failures return the same generic `401 INVALID_CREDENTIALS` response whether
+the email is unknown or the password is wrong. Access tokens expire after 60
+minutes and include `sub`, `role`, `jti`, and an optional `businessId` claim.
 
 Do not commit real signing keys, bearer tokens, or financial data.
+
+## Later gates
+
+Transaction sync, summary, consent, and delivery remain to be implemented.
