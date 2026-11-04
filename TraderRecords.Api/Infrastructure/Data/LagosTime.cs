@@ -10,12 +10,17 @@ public static class LagosTime
 
     public static DateTime GetWeekStartLocal(DateTime utcNow)
     {
-        var utc = DateTime.SpecifyKind(utcNow, DateTimeKind.Utc);
-        var local = TimeZoneInfo.ConvertTimeFromUtc(utc, Zone);
+        var local = ToLocal(utcNow);
 
         // Monday is day 1; this expression maps Monday to 0 and Sunday to 6.
         var daysSinceMonday = ((int)local.DayOfWeek + 6) % 7;
         return local.Date.AddDays(-daysSinceMonday);
+    }
+
+    public static DateTime ToLocal(DateTime utc)
+    {
+        var utcValue = DateTime.SpecifyKind(utc, DateTimeKind.Utc);
+        return TimeZoneInfo.ConvertTimeFromUtc(utcValue, Zone);
     }
 
     public static DateTime ToUtc(DateTime local)

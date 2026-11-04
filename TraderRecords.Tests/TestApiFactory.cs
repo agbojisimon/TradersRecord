@@ -15,11 +15,18 @@ namespace TraderRecords.Tests;
 /// </summary>
 public sealed class TestApiFactory : WebApplicationFactory<Program>
 {
+    // Explicit fixed clock for deterministic Lagos-week and admission-window tests.
+    // It is intentionally in the past so JWT "not before" is valid against the real
+    // system clock used by bearer validation.
     public static readonly DateTimeOffset FixedNow = TruncateToMilliseconds(
-        DateTimeOffset.UtcNow.AddMinutes(-1));
+        new DateTimeOffset(2026, 1, 7, 12, 0, 0, TimeSpan.Zero));
 
     private const string TestSigningKey =
         "test-signing-key-at-least-32-bytes-long-1234567890";
+
+    // Test-only long-lived tokens: the fixed clock is in the past, while JWT lifetime
+    // validation uses the real system clock. Production keeps the 60-minute expiry.
+    private const string TestJwtExpiryMinutes = "52560000";
 
     private readonly string _databasePath = Path.Combine(
         Path.GetTempPath(),
@@ -33,7 +40,7 @@ public sealed class TestApiFactory : WebApplicationFactory<Program>
             $"Data Source={_databasePath};Foreign Keys=True;Default Timeout=5;Pooling=False");
         builder.UseSetting("Jwt:Issuer", "TraderRecords.Api");
         builder.UseSetting("Jwt:Audience", "TraderRecords.Demo");
-        builder.UseSetting("Jwt:ExpiryMinutes", "60");
+        builder.UseSetting("Jwt:ExpiryMinutes", TestJwtExpiryMinutes);
         builder.UseSetting("Jwt:SigningKey", TestSigningKey);
 
         builder.ConfigureAppConfiguration((_, configuration) =>
@@ -44,7 +51,7 @@ public sealed class TestApiFactory : WebApplicationFactory<Program>
                     $"Data Source={_databasePath};Foreign Keys=True;Default Timeout=5;Pooling=False",
                 ["Jwt:Issuer"] = "TraderRecords.Api",
                 ["Jwt:Audience"] = "TraderRecords.Demo",
-                ["Jwt:ExpiryMinutes"] = "60",
+                ["Jwt:ExpiryMinutes"] = TestJwtExpiryMinutes,
                 ["Jwt:SigningKey"] = TestSigningKey
             });
         });
