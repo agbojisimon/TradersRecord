@@ -4,7 +4,9 @@ using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Scalar.AspNetCore;
+using TraderRecords.Api.API.Controllers;
 using TraderRecords.Api.API.ErrorHandling;
+using TraderRecords.Api.API.Json;
 using TraderRecords.Api.API.OpenApi;
 using TraderRecords.Api.Infrastructure;
 using TraderRecords.Api.Infrastructure.Data;
@@ -22,6 +24,10 @@ builder.Services.AddControllers()
         // Reject numeric enum values; the public contract uses names only.
         options.JsonSerializerOptions.Converters.Add(
             new JsonStringEnumConverter(allowIntegerValues: false));
+        // Occurrence timestamps must carry Z or an explicit offset. Offset-less
+        // values become item-level INVALID_OCCURRED_AT instead of local-time data.
+        options.JsonSerializerOptions.Converters.Add(
+            new RequiredOffsetDateTimeOffsetConverter());
     });
 
 // Model-binding failures use the same ProblemDetails contract as service failures.
@@ -102,6 +108,33 @@ if (app.Environment.IsDevelopment())
 
 app.UseExceptionHandler();
 
+// The in-process test server does not implement IHttpMaxRequestBodySizeFeature, so
+// enforce the known Content-Length here as well as keeping the MVC limit for Kestrel.
+app.Use(async (context, next) =>
+{
+    if (context.Request.Path.StartsWithSegments("/api/transactions/sync")
+        && context.Request.ContentLength > TransactionsController.MaximumRequestBodyBytes)
+    {
+        context.Response.StatusCode = StatusCodes.Status413PayloadTooLarge;
+
+        var problem = ApiProblemDetails.Create(
+            context,
+            StatusCodes.Status413PayloadTooLarge,
+            "PAYLOAD_TOO_LARGE",
+            "The request body exceeds the 256 KiB limit.");
+
+        await context.Response.WriteAsJsonAsync(
+            problem,
+            options: null,
+            contentType: "application/problem+json",
+            cancellationToken: context.RequestAborted);
+
+        return;
+    }
+
+    await next(context);
+});
+
 // Routing and status-code middleware should not leave API clients with an empty
 // 404/405 body. Authentication challenges format their own 401/403 responses.
 app.UseStatusCodePages(async (StatusCodeContext statusCodeContext) =>
@@ -127,6 +160,8 @@ app.UseStatusCodePages(async (StatusCodeContext statusCodeContext) =>
             ("NOT_FOUND", "The requested resource was not found."),
         StatusCodes.Status405MethodNotAllowed =>
             ("METHOD_NOT_ALLOWED", "The HTTP method is not allowed for this resource."),
+        StatusCodes.Status413PayloadTooLarge =>
+            ("PAYLOAD_TOO_LARGE", "The request body exceeds the 256 KiB limit."),
         _ =>
             ("HTTP_ERROR", "The request could not be completed.")
     };
@@ -146,3 +181,8 @@ app.UseAuthorization();
 app.MapControllers();
 
 app.Run();
+
+// Exposes the generated top-level Program class to WebApplicationFactory in tests.
+public partial class Program
+{
+}

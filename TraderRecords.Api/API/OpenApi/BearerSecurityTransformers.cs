@@ -66,6 +66,21 @@ public sealed class BearerSecurityRequirementTransformer : IOpenApiOperationTran
             }] = Array.Empty<string>()
         });
 
+        var roles = metadata
+            .OfType<AuthorizeAttribute>()
+            .Select(attribute => attribute.Roles)
+            .Where(role => !string.IsNullOrWhiteSpace(role))
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+
+        if (roles.Length > 0)
+        {
+            var roleDescription = $"Requires role: {string.Join(", ", roles)}.";
+            operation.Description = string.IsNullOrWhiteSpace(operation.Description)
+                ? roleDescription
+                : $"{operation.Description} {roleDescription}";
+        }
+
         return Task.CompletedTask;
     }
 }

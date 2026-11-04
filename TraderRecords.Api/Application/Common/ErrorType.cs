@@ -10,5 +10,6 @@ public enum ErrorType
     Unauthorized,
     Forbidden,
     NotFound,
-    Conflict
+    Conflict,
+    Unavailable
 }

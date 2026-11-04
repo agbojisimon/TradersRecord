@@ -42,4 +42,7 @@ public sealed class Error
 
     public static Error Conflict(string code, string message) =>
         new(code, message, ErrorType.Conflict);
+
+    public static Error Unavailable(string code, string message) =>
+        new(code, message, ErrorType.Unavailable);
 }

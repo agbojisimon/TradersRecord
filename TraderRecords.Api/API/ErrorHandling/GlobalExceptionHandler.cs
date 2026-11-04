@@ -23,6 +23,34 @@ public sealed class GlobalExceptionHandler : IExceptionHandler
     {
         var traceId = Activity.Current?.Id ?? httpContext.TraceIdentifier;
 
+        if (exception is BadHttpRequestException
+            {
+                StatusCode: StatusCodes.Status413PayloadTooLarge
+            })
+        {
+            // Kestrel raises this while reading a body that exceeds the action's
+            // RequestSizeLimit. It is a client transport failure, not a server fault.
+            _logger.LogWarning(
+                "Request body too large. TraceId: {TraceId}",
+                traceId);
+
+            httpContext.Response.StatusCode = StatusCodes.Status413PayloadTooLarge;
+
+            var tooLargeProblem = ApiProblemDetails.Create(
+                httpContext,
+                StatusCodes.Status413PayloadTooLarge,
+                "PAYLOAD_TOO_LARGE",
+                "The request body exceeds the 256 KiB limit.");
+
+            await httpContext.Response.WriteAsJsonAsync(
+                tooLargeProblem,
+                options: null,
+                contentType: "application/problem+json",
+                cancellationToken: cancellationToken);
+
+            return true;
+        }
+
         _logger.LogError(
             exception,
             "Unhandled exception. TraceId: {TraceId}",

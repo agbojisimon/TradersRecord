@@ -1,12 +1,12 @@
 # Trader Records API
 
-Gate 3 authentication slice for the Trader Records API. The repository contains
+Gate 4 transaction-sync slice for the Trader Records API. The repository contains
 one ASP.NET Core 9 controller-based API project organised into `API`,
-`Application`, `Infrastructure`, and `Domain` folders. Entities, EF Core SQLite
-mappings, the initial migration, idempotent development seeding, registration,
-login, JWT authentication, and shared ProblemDetails error handling are
-implemented. Transaction sync, summaries, and consent endpoints are not
-implemented yet.
+`Application`, `Infrastructure`, and `Domain` folders, plus a sibling xUnit test
+project. Entities, EF Core SQLite mappings, the initial migration, idempotent
+development seeding, registration, login, JWT authentication, retry-safe
+transaction sync, and shared ProblemDetails error handling are implemented.
+Summaries and consent endpoints are not implemented yet.
 
 ## Prerequisites
 
@@ -60,15 +60,19 @@ With the process running, open or request:
 - Liveness endpoint: `http://localhost:5080/api/health`
 - Register: `POST http://localhost:5080/api/auth/register`
 - Login: `POST http://localhost:5080/api/auth/login`
+- Transaction sync: `POST http://localhost:5080/api/transactions/sync`
 
 Scalar includes a bearer authentication field. Paste the `accessToken` returned
-by register or login to call future protected endpoints.
+by register or login to call protected endpoints. The sync endpoint requires a
+Trader token; a Lender token returns `403 FORBIDDEN`.
 
-After the first successful restore, `TraderRecords.Api/packages.lock.json` is
-committed. Reviewers can then verify the locked graph with:
+After the first successful restore, the API and test `packages.lock.json` files
+are committed. Reviewers can then verify the locked graph and run the automated
+tests with:
 
 ```powershell
 dotnet restore --locked-mode
+dotnet test
 ```
 
 ## Demo data
@@ -115,6 +119,50 @@ minutes and include `sub`, `role`, `jti`, and an optional `businessId` claim.
 
 Do not commit real signing keys, bearer tokens, or financial data.
 
+## Transaction sync
+
+`POST /api/transactions/sync` accepts 1-100 entries and returns an ordered,
+partial-success response. `clientId` is the idempotency key within the trader's
+business: an identical retry returns `Duplicate` with the original transaction ID,
+while a changed payload returns item-level `CLIENT_ID_CONFLICT`.
+
+```json
+{
+  "items": [
+    {
+      "clientId": "11111111-1111-4111-8111-111111111111",
+      "type": "Sale",
+      "amountMinor": 4500000,
+      "note": "Sold rice",
+      "occurredAt": "2026-11-03T09:00:00+01:00"
+    },
+    {
+      "clientId": "22222222-2222-4222-8222-222222222222",
+      "type": "Expense",
+      "amountMinor": 1200000,
+      "note": "Stock purchase",
+      "occurredAt": "2026-11-03T09:05:00+01:00"
+    }
+  ]
+}
+```
+
+Item validation is per-entry: invalid amounts, unknown types, oversized notes,
+and missing/future/too-old timestamps are returned in the `results` array without
+rejecting valid entries. The envelope itself must contain 1-100 items and is
+limited to 256 KiB. Occurrence timestamps must include `Z` or an explicit offset;
+the server normalises them to UTC milliseconds. New entries must fall within the
+last 365 days.
+
+An identical retry returns HTTP 200 with `duplicateCount` increased and no new
+rows. A changed payload for an existing `clientId` is an item-level rejection, not
+a request-wide 409. SQLite busy/locked failures are retried briefly and then
+return request-wide `503 DATABASE_BUSY`; earlier accepted entries may already be
+saved, so the client should retry the full batch safely.
+
+The example timestamps must be recent past values when manually testing. If the
+example is older than 365 days, replace them with a timestamp from the last year.
+
 ## Later gates
 
-Transaction sync, summary, consent, and delivery remain to be implemented.
+Summary, consent, and delivery remain to be implemented.
