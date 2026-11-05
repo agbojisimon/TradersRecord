@@ -1,12 +1,12 @@
 # Trader Records API
 
-Gate 5 summary slice for the Trader Records API. The repository contains one
+Gate 6 consent slice for the Trader Records API. The repository contains one
 ASP.NET Core 9 controller-based API project organised into `API`, `Application`,
 `Infrastructure`, and `Domain` folders, plus a sibling xUnit test project.
 Entities, EF Core SQLite mappings, the initial migration, idempotent development
 seeding, registration, login, JWT authentication, retry-safe transaction sync,
-the eight-week trader summary, and shared ProblemDetails error handling are
-implemented. Consent and lender summary endpoints are not implemented yet.
+the eight-week trader summary, trader-managed lender consent, the consent-gated
+lender summary, and shared ProblemDetails error handling are implemented.
 
 ## Prerequisites
 
@@ -62,10 +62,14 @@ With the process running, open or request:
 - Login: `POST http://localhost:5080/api/auth/login`
 - Transaction sync: `POST http://localhost:5080/api/transactions/sync`
 - Trader summary: `GET http://localhost:5080/api/businesses/me/summary`
+- Grant consent: `PUT http://localhost:5080/api/businesses/me/consents/{lenderId}`
+- Revoke consent: `DELETE http://localhost:5080/api/businesses/me/consents/{lenderId}`
+- Lender summary: `GET http://localhost:5080/api/lender/businesses/{businessId}/summary`
 
 Scalar includes a bearer authentication field. Paste the `accessToken` returned
-by register or login to call protected endpoints. Sync and owner-summary routes
-require a Trader token; a Lender token returns `403 FORBIDDEN`.
+by register or login to call protected endpoints. Sync, owner-summary, and
+consent routes require a Trader token; the lender-summary route requires a
+Lender token. A wrong-role request returns `403 FORBIDDEN`.
 
 After the first successful restore, the API and test `packages.lock.json` files
 are committed. Reviewers can then verify the locked graph and run the automated
@@ -188,6 +192,36 @@ The score is clamped to 0-100. Empty history returns zero totals and score zero.
 The disclaimer is returned with every summary; the indicator measures recording
 coverage, not verified income or creditworthiness.
 
+## Consent and lender summary
+
+A Trader grants or revokes a Lender's access to the business summary with:
+
+```text
+PUT    /api/businesses/me/consents/{lenderId}
+DELETE /api/businesses/me/consents/{lenderId}
+```
+
+The Trader's business comes from the validated subject claim, so the routes never
+accept another Trader's business ID. Granting an already-active consent leaves its
+timestamps unchanged. Revoking an absent or already-revoked consent still returns
+`204 No Content`. Regranting after revocation reactivates the same row with a new
+`grantedAtUtc` and a null `revokedAtUtc`. The target user must exist and have the
+Lender role; otherwise the response is `404 LENDER_NOT_FOUND` or
+`409 TARGET_NOT_LENDER`.
+
+A Lender reads a summary only while consent is active:
+
+```text
+GET /api/lender/businesses/{businessId}/summary
+```
+
+Every request checks the current persisted consent row. A missing or revoked
+consent returns `403 CONSENT_REQUIRED`; another Lender's consent never grants
+access. The lender summary uses the same eight-week calculation and response
+contract as the Trader's own summary. Consent covers summary data only, not raw
+transaction notes or credentials.
+
 ## Later gates
 
-Consent, lender summary, and delivery remain to be implemented.
+Delivery hardening, OpenAPI export, implementation-status tracking, and the
+walkthrough video remain to be completed.
