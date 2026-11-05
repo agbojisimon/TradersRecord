@@ -1,6 +1,6 @@
 # Trader Records API
 
-Gate 6 consent slice for the Trader Records API. The repository contains one
+Backend implementation for the Trader Records API. The repository contains one
 ASP.NET Core 9 controller-based API project organised into `API`, `Application`,
 `Infrastructure`, and `Domain` folders, plus a sibling xUnit test project.
 Entities, EF Core SQLite mappings, the initial migration, idempotent development
@@ -8,9 +8,14 @@ seeding, registration, login, JWT authentication, retry-safe transaction sync,
 the eight-week trader summary, trader-managed lender consent, the consent-gated
 lender summary, and shared ProblemDetails error handling are implemented.
 
+This is a backend-only submission. It does not contain an offline mobile client,
+background retry scheduler, chat frontend, or WhatsApp integration.
+
 ## Prerequisites
 
 - .NET SDK **9.0.316** (pinned by `global.json`).
+- ASP.NET Core Runtime **9.0.21** (or a later compatible 9.0.x patch). Verify with
+  `dotnet --list-runtimes`; install the shared runtime if 9.0.21 is absent.
 - The local `dotnet-ef` tool **9.0.21** (pinned by `.config/dotnet-tools.json`).
 
 ## Run locally
@@ -20,8 +25,9 @@ Run these commands from the repository root:
 ```powershell
 dotnet --version
 dotnet tool restore
-dotnet restore
-dotnet build
+dotnet restore --locked-mode
+dotnet build --no-restore
+dotnet test --no-build --no-restore
 ```
 
 Configure a JWT signing key outside source control before starting the API:
@@ -57,6 +63,7 @@ With the process running, open or request:
 
 - Scalar UI: `http://localhost:5080/scalar/` (`/scalar` redirects here)
 - OpenAPI document: `http://localhost:5080/openapi/v1.json`
+- Exported OpenAPI snapshot: `docs/openapi.json`
 - Liveness endpoint: `http://localhost:5080/api/health`
 - Register: `POST http://localhost:5080/api/auth/register`
 - Login: `POST http://localhost:5080/api/auth/login`
@@ -70,6 +77,12 @@ Scalar includes a bearer authentication field. Paste the `accessToken` returned
 by register or login to call protected endpoints. Sync, owner-summary, and
 consent routes require a Trader token; the lender-summary route requires a
 Lender token. A wrong-role request returns `403 FORBIDDEN`.
+
+The generated OpenAPI snapshot documents all seven controller paths, the Bearer
+scheme, and role restrictions, but it uses ASP.NET Core's default response media
+types (`text/plain`, `application/json`, `text/json`). Runtime errors use
+`application/problem+json`. The snapshot has no explicit examples and does not
+document the unexpected-exception 500 response.
 
 After the first successful restore, the API and test `packages.lock.json` files
 are committed. Reviewers can then verify the locked graph and run the automated
@@ -86,6 +99,17 @@ Development seeding creates two traders, their businesses, one lender, and
 deterministic transaction history across the current Lagos week plus the seven
 preceding weeks. The default seed does **not** grant consent.
 
+A fresh database contains 3 users, 2 businesses, 24 transactions, and 0 consents:
+
+| Business | Transactions | Sales (kobo) | Expenses (kobo) |
+| --- | ---: | ---: | ---: |
+| Trader One Stores | 16 (8 Sale, 8 Expense) | 38,800,000 | 11,000,000 |
+| Trader Two Supplies | 8 (4 Sale, 4 Expense) | 19,200,000 | 5,600,000 |
+| **Total** | **24** | **58,000,000** | **16,600,000** |
+
+The Trader One figures are not the database totals; they describe one business
+only.
+
 | Email | Demo password | Role |
 | --- | --- | --- |
 | `trader1@example.test` | `Trader1!Demo2026` | Trader |
@@ -94,6 +118,15 @@ preceding weeks. The default seed does **not** grant consent.
 
 These are fictional demo credentials only. Never reuse them for real accounts.
 They are seeded passwords, not JWT signing secrets.
+
+The seed identities are deterministic, which makes the consent walkthrough
+repeatable:
+
+| Seed value | GUID |
+| --- | --- |
+| Lender user ID | `33333333-3333-4333-8333-333333333333` |
+| Trader One business ID | `aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa` |
+| Trader Two business ID | `bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb` |
 
 Seeding is idempotent: restarting the API preserves existing records and does not
 duplicate seeded identities or transactions.
@@ -202,8 +235,9 @@ DELETE /api/businesses/me/consents/{lenderId}
 ```
 
 The Trader's business comes from the validated subject claim, so the routes never
-accept another Trader's business ID. Granting an already-active consent leaves its
-timestamps unchanged. Revoking an absent or already-revoked consent still returns
+accept another Trader's business ID. For the seeded lender, use
+`33333333-3333-4333-8333-333333333333` as `{lenderId}`. Granting an
+already-active consent leaves its timestamps unchanged. Revoking an absent or already-revoked consent still returns
 `204 No Content`. Regranting after revocation reactivates the same row with a new
 `grantedAtUtc` and a null `revokedAtUtc`. The target user must exist and have the
 Lender role; otherwise the response is `404 LENDER_NOT_FOUND` or
@@ -221,7 +255,24 @@ access. The lender summary uses the same eight-week calculation and response
 contract as the Trader's own summary. Consent covers summary data only, not raw
 transaction notes or credentials.
 
-## Later gates
+## Delivery documentation
 
-Delivery hardening, OpenAPI export, implementation-status tracking, and the
-walkthrough video remain to be completed.
+- Source of truth: [`Trader_Records_API_Source_of_Truth.md`](Trader_Records_API_Source_of_Truth.md)
+  and [`docs/Trader_Records_API_Source_of_Truth_v1.pdf`](docs/Trader_Records_API_Source_of_Truth_v1.pdf)
+- Implementation status and branch/PR mapping: [`docs/implementation-status.md`](docs/implementation-status.md)
+- Exported OpenAPI snapshot: [`docs/openapi.json`](docs/openapi.json)
+- Functional requirements document: [`docs/TraderRecords_Functional_Requirements.docx`](docs/TraderRecords_Functional_Requirements.docx)
+- Engineering defence guide: [`docs/TraderRecords_Backend_Engineering_Defence_Guide.docx`](docs/TraderRecords_Backend_Engineering_Defence_Guide.docx)
+- Walkthrough script: [`docs/walkthrough-script.md`](docs/walkthrough-script.md)
+- Walkthrough and rehearsal PDF: [`docs/TraderRecords_Walkthrough_and_Rehearsal_Guide.pdf`](docs/TraderRecords_Walkthrough_and_Rehearsal_Guide.pdf)
+
+## Submission status
+
+- Repository: `https://github.com/agbojisimon/TradersRecord`
+- Walkthrough video: **not yet published**. No placeholder URL is presented as live.
+- Clean-checkout restore, build, the 18-test delivery suite, the separate
+  authentication test branch (11 tests), and a separate-database API smoke run
+  have been completed.
+
+The remaining manual delivery step is to record and publish the 3-5 minute
+walkthrough video, then submit the repository and video URLs.
