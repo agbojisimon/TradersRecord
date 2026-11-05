@@ -49,6 +49,54 @@ public sealed class SummaryService : ISummaryService
         return await BuildSummaryAsync(business, ct);
     }
 
+    public async Task<Result<BusinessSummaryResponse>> GetForLenderAsync(
+        Guid lenderUserId,
+        Guid businessId,
+        CancellationToken ct)
+    {
+        if (businessId == Guid.Empty)
+        {
+            return Result<BusinessSummaryResponse>.Failure(
+                Error.Validation(
+                    "A valid business ID is required.",
+                    new Dictionary<string, string[]>(StringComparer.OrdinalIgnoreCase)
+                    {
+                        ["businessId"] = ["A non-empty business ID is required."]
+                    }));
+        }
+
+        var business = await _db.Businesses
+            .AsNoTracking()
+            .SingleOrDefaultAsync(candidate => candidate.Id == businessId, ct);
+
+        if (business is null)
+        {
+            return Result<BusinessSummaryResponse>.Failure(
+                Error.NotFound("BUSINESS_NOT_FOUND", "The business was not found."));
+        }
+
+        // Consent is read from the database for every request. The business ID and
+        // lender ID must match the same active row; another lender's consent never
+        // grants access.
+        var hasActiveConsent = await _db.Consents
+            .AsNoTracking()
+            .AnyAsync(
+                consent => consent.BusinessId == businessId
+                    && consent.LenderUserId == lenderUserId
+                    && consent.RevokedAtUtc == null,
+                ct);
+
+        if (!hasActiveConsent)
+        {
+            return Result<BusinessSummaryResponse>.Failure(
+                Error.Forbidden(
+                    "CONSENT_REQUIRED",
+                    "Active consent is required."));
+        }
+
+        return await BuildSummaryAsync(business, ct);
+    }
+
     private async Task<Result<BusinessSummaryResponse>> BuildSummaryAsync(
         Business business,
         CancellationToken ct)

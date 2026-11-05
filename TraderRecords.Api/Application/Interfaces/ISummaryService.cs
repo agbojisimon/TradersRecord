@@ -8,4 +8,9 @@ public interface ISummaryService
     Task<Result<BusinessSummaryResponse>> GetForTraderAsync(
         Guid traderUserId,
         CancellationToken ct);
+
+    Task<Result<BusinessSummaryResponse>> GetForLenderAsync(
+        Guid lenderUserId,
+        Guid businessId,
+        CancellationToken ct);
 }

@@ -37,6 +37,7 @@ public static class DependencyInjection
         services.AddScoped<IPasswordHasher<User>, PasswordHasher<User>>();
 
         services.AddScoped<IAuthService, AuthService>();
+        services.AddScoped<IConsentService, ConsentService>();
         services.AddScoped<ISummaryService, SummaryService>();
         services.AddScoped<ITransactionSyncService, TransactionSyncService>();
         services.AddScoped<ITokenService, JwtTokenService>();

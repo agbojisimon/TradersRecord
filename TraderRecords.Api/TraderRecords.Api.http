@@ -1,5 +1,8 @@
 @HostAddress = http://localhost:5080
-@Token = <paste-access-token-here>
+@Token = <paste-trader-access-token-here>
+@LenderToken = <paste-lender-access-token-here>
+@LenderId = 33333333-3333-4333-8333-333333333333
+@SeededBusinessId = aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa
 @ClientIdSale = 11111111-1111-4111-8111-111111111111
 @ClientIdExpense = 22222222-2222-4222-8222-222222222222
 
@@ -110,6 +113,26 @@ Authorization: Bearer {{Token}}
 # Requires a Trader token. Returns eight Lagos weeks and the consistency indicator.
 GET {{HostAddress}}/api/businesses/me/summary
 Accept: application/json
+Authorization: Bearer {{Token}}
+
+###
+
+# Requires a Trader token. Grants the seeded Lender access to the trader's summary.
+PUT {{HostAddress}}/api/businesses/me/consents/{{LenderId}}
+Accept: application/json
+Authorization: Bearer {{Token}}
+
+###
+
+# Requires a Lender token. Allowed only while the trader's consent is active.
+GET {{HostAddress}}/api/lender/businesses/{{SeededBusinessId}}/summary
+Accept: application/json
+Authorization: Bearer {{LenderToken}}
+
+###
+
+# Requires a Trader token. Revokes the seeded Lender's summary access.
+DELETE {{HostAddress}}/api/businesses/me/consents/{{LenderId}}
 Authorization: Bearer {{Token}}
 
 ###
