@@ -5,8 +5,9 @@ ASP.NET Core 9 controller-based API project organised into `API`, `Application`,
 `Infrastructure`, and `Domain` folders, plus a sibling xUnit test project.
 Entities, EF Core SQLite mappings, the initial migration, idempotent development
 seeding, registration, login, JWT authentication, retry-safe transaction sync,
-the eight-week trader summary, trader-managed lender consent, the consent-gated
-lender summary, and shared ProblemDetails error handling are implemented.
+the eight-week trader summary, date-range period statistics, trader-managed lender
+consent, the consent-gated lender summary and statistics, and shared ProblemDetails
+error handling are implemented.
 
 This is a backend-only submission. It does not contain an offline mobile client,
 background retry scheduler, chat frontend, or WhatsApp integration.
@@ -68,16 +69,19 @@ With the process running, open or request:
 - Login: `POST http://localhost:5080/api/auth/login`
 - Transaction sync: `POST http://localhost:5080/api/transactions/sync`
 - Trader summary: `GET http://localhost:5080/api/businesses/me/summary`
+- Trader statistics: `GET http://localhost:5080/api/businesses/me/statistics?from=2026-09-14&to=2026-11-05&groupBy=week`
 - Grant consent: `PUT http://localhost:5080/api/businesses/me/consents/{lenderId}`
 - Revoke consent: `DELETE http://localhost:5080/api/businesses/me/consents/{lenderId}`
 - Lender summary: `GET http://localhost:5080/api/lender/businesses/{businessId}/summary`
+- Lender statistics: `GET http://localhost:5080/api/lender/businesses/{businessId}/statistics?from=2026-09-14&to=2026-11-05&groupBy=week`
 
 Scalar includes a bearer authentication field. Paste the `accessToken` returned
-by register or login to call protected endpoints. Sync, owner-summary, and
-consent routes require a Trader token; the lender-summary route requires a
-Lender token. A wrong-role request returns `403 FORBIDDEN`.
+by register or login to call protected endpoints. Sync, owner-summary,
+owner-statistics, and consent routes require a Trader token; the lender-summary
+and lender-statistics routes require a Lender token. A wrong-role request returns
+`403 FORBIDDEN`.
 
-The generated OpenAPI document exposes all seven controller paths, the Bearer
+The generated OpenAPI document exposes all nine controller paths, the Bearer
 scheme, and role restrictions, but it uses ASP.NET Core's default response media
 types (`text/plain`, `application/json`, `text/json`). Runtime errors use
 `application/problem+json`. The document has no explicit examples and does not
@@ -224,9 +228,40 @@ The score is clamped to 0-100. Empty history returns zero totals and score zero.
 The disclaimer is returned with every summary; the indicator measures recording
 coverage, not verified income or creditworthiness.
 
-## Consent and lender summary
+## Period statistics
 
-A Trader grants or revokes a Lender's access to the business summary with:
+`GET /api/businesses/me/statistics` and
+`GET /api/lender/businesses/{businessId}/statistics` return cash-flow statistics
+for an explicit inclusive Lagos date range. Both routes require `from`, `to`, and
+`groupBy`:
+
+```text
+?from=2026-09-14&to=2026-11-05&groupBy=week
+```
+
+`from` and `to` are `yyyy-MM-dd` Lagos calendar dates. `to` must be on or after
+`from`, must not be in the future, and the inclusive range must not exceed 366
+days. `groupBy` accepts `day`, `week`, or `month` case-insensitively. Week buckets
+start Monday at 00:00 Lagos time. First and last buckets are clipped to the
+requested range, and empty buckets are included.
+
+The response exposes the requested dates, equivalent UTC window boundaries,
+business identity, earliest/latest persisted transaction dates, totals, counts,
+distinct recorded activity days, and chronological groups. Money is integer kobo.
+`netCashFlowMinor` is sales minus expenses, not accounting profit. Every response
+includes a warning that missing records do not prove inactivity and that the
+statistics are not annual income or a credit score. The API does not extrapolate
+period totals to a year and does not add inventory, accounting, loan-approval,
+forecasting, or new credit-scoring logic.
+
+Lender statistics use the same response contract and require the same current
+persisted consent as the lender summary. Revoking consent denies later statistics
+requests immediately.
+
+## Consent, lender summary, and lender statistics
+
+A Trader grants or revokes a Lender's access to the business summary and
+statistics with:
 
 ```text
 PUT    /api/businesses/me/consents/{lenderId}
@@ -242,23 +277,26 @@ already-active consent leaves its timestamps unchanged. Revoking an absent or al
 Lender role; otherwise the response is `404 LENDER_NOT_FOUND` or
 `409 TARGET_NOT_LENDER`.
 
-A Lender reads a summary only while consent is active:
+A Lender reads a summary or statistics only while consent is active:
 
 ```text
 GET /api/lender/businesses/{businessId}/summary
+GET /api/lender/businesses/{businessId}/statistics?from=...&to=...&groupBy=...
 ```
 
 Every request checks the current persisted consent row. A missing or revoked
 consent returns `403 CONSENT_REQUIRED`; another Lender's consent never grants
 access. The lender summary uses the same eight-week calculation and response
-contract as the Trader's own summary. Consent covers summary data only, not raw
-transaction notes or credentials.
+contract as the Trader's own summary, and lender statistics use the same
+date-range contract as the Trader's own statistics. Consent covers summary and
+statistics data only, not raw transaction notes or credentials.
 
 ## Submission status
 
 - Repository: `https://github.com/agbojisimon/TradersRecord`
 - Walkthrough video: **not yet published**. No placeholder URL is presented as live.
-- Clean-checkout restore, build, and the 21-test suite have been completed.
+- Build and the 28-test suite pass on this branch; a clean-checkout run of the
+  merged branch remains part of final delivery verification.
 - Private specification and delivery artifacts are intentionally excluded from
   version control.
 

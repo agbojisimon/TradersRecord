@@ -69,6 +69,7 @@ builder.Services.AddOpenApi(options =>
 {
     options.AddDocumentTransformer<BearerSecuritySchemeTransformer>();
     options.AddOperationTransformer<BearerSecurityRequirementTransformer>();
+    options.AddSchemaTransformer<StringEnumSchemaTransformer>();
 });
 
 var sqliteConnection = SqliteConnectionStringResolver.Resolve(
