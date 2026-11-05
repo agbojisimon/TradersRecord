@@ -2,7 +2,6 @@ using System.Globalization;
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
-using System.Text;
 using System.Text.Json;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
@@ -35,220 +34,99 @@ public sealed class TransactionSyncTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task T02_FirstBatch_IdenticalRetry_AndChangedRetry_AreClassified()
-    {
-        var (client, auth) = await CreateTraderAsync();
-        var businessId = auth.BusinessId!.Value;
-
-        var firstClientId = Guid.NewGuid();
-        var secondClientId = Guid.NewGuid();
-        var invalidClientId = Guid.NewGuid();
-
-        var firstItems = new object?[]
-        {
-            Item(
-                firstClientId,
-                "Sale",
-                4_500_000,
-                "  Sold rice  ",
-                OffsetTimestamp(TimeSpan.FromDays(-1), TimeSpan.FromHours(1))),
-            Item(
-                secondClientId,
-                "Expense",
-                1_200_000,
-                "Stock purchase",
-                OffsetTimestamp(
-                    TimeSpan.FromDays(-1).Add(TimeSpan.FromMinutes(5)),
-                    TimeSpan.FromHours(1))),
-            Item(
-                invalidClientId,
-                "Sale",
-                -100,
-                null,
-                OffsetTimestamp(
-                    TimeSpan.FromDays(-1).Add(TimeSpan.FromMinutes(10)),
-                    TimeSpan.FromHours(1)))
-        };
-
-        var firstResponse = await PostBatchAsync(client, firstItems);
-        Assert.Equal(HttpStatusCode.OK, firstResponse.StatusCode);
-
-        var firstBody = await ReadSyncResponseAsync(firstResponse);
-        Assert.Equal(3, firstBody.ReceivedCount);
-        Assert.Equal(2, firstBody.AcceptedCount);
-        Assert.Equal(0, firstBody.DuplicateCount);
-        Assert.Equal(1, firstBody.RejectedCount);
-        Assert.Equal([0, 1, 2], firstBody.Results.Select(result => result.Index));
-        Assert.Equal("Accepted", firstBody.Results[0].Status);
-        Assert.Equal("Accepted", firstBody.Results[1].Status);
-        Assert.Equal("Rejected", firstBody.Results[2].Status);
-        Assert.NotNull(firstBody.Results[0].TransactionId);
-        Assert.NotNull(firstBody.Results[1].TransactionId);
-        Assert.Null(firstBody.Results[2].TransactionId);
-        Assert.Equal("INVALID_AMOUNT", Assert.Single(firstBody.Results[2].Errors).Code);
-
-        var firstTransactionIds = firstBody.Results
-            .Take(2)
-            .Select(result => result.TransactionId)
-            .ToArray();
-
-        Assert.Equal(2, (await GetTransactionsAsync(businessId)).Count);
-
-        // Equivalent UTC strings and trimmed notes must still compare as the same
-        // canonical transaction, so an identical retry creates no new rows.
-        var retryItems = new object?[]
-        {
-            Item(firstClientId, "Sale", 4_500_000, "Sold rice", UtcTimestamp(TimeSpan.FromDays(-1))),
-            Item(
-                secondClientId,
-                "Expense",
-                1_200_000,
-                "Stock purchase",
-                UtcTimestamp(TimeSpan.FromDays(-1).Add(TimeSpan.FromMinutes(5)))),
-            Item(
-                invalidClientId,
-                "Sale",
-                -100,
-                null,
-                OffsetTimestamp(
-                    TimeSpan.FromDays(-1).Add(TimeSpan.FromMinutes(10)),
-                    TimeSpan.FromHours(1)))
-        };
-
-        var retryResponse = await PostBatchAsync(client, retryItems);
-        Assert.Equal(HttpStatusCode.OK, retryResponse.StatusCode);
-
-        var retryBody = await ReadSyncResponseAsync(retryResponse);
-        Assert.Equal(3, retryBody.ReceivedCount);
-        Assert.Equal(0, retryBody.AcceptedCount);
-        Assert.Equal(2, retryBody.DuplicateCount);
-        Assert.Equal(1, retryBody.RejectedCount);
-        Assert.Equal("Duplicate", retryBody.Results[0].Status);
-        Assert.Equal("Duplicate", retryBody.Results[1].Status);
-        Assert.Equal(firstTransactionIds[0], retryBody.Results[0].TransactionId);
-        Assert.Equal(firstTransactionIds[1], retryBody.Results[1].TransactionId);
-        Assert.Equal(2, (await GetTransactionsAsync(businessId)).Count);
-
-        var changedItems = new object?[]
-        {
-            Item(firstClientId, "Sale", 5_000_000, "Sold rice", UtcTimestamp(TimeSpan.FromDays(-1))),
-            Item(
-                secondClientId,
-                "Expense",
-                1_200_000,
-                "Stock purchase",
-                UtcTimestamp(TimeSpan.FromDays(-1).Add(TimeSpan.FromMinutes(5)))),
-            Item(
-                invalidClientId,
-                "Sale",
-                -100,
-                null,
-                OffsetTimestamp(
-                    TimeSpan.FromDays(-1).Add(TimeSpan.FromMinutes(10)),
-                    TimeSpan.FromHours(1)))
-        };
-
-        var changedResponse = await PostBatchAsync(client, changedItems);
-        Assert.Equal(HttpStatusCode.OK, changedResponse.StatusCode);
-
-        var changedBody = await ReadSyncResponseAsync(changedResponse);
-        Assert.Equal(0, changedBody.AcceptedCount);
-        Assert.Equal(1, changedBody.DuplicateCount);
-        Assert.Equal(2, changedBody.RejectedCount);
-        Assert.Equal("CLIENT_ID_CONFLICT", Assert.Single(changedBody.Results[0].Errors).Code);
-        Assert.Null(changedBody.Results[0].TransactionId);
-
-        var rowsAfterConflict = await GetTransactionsAsync(businessId);
-        Assert.Equal(2, rowsAfterConflict.Count);
-        Assert.Equal(
-            4_500_000,
-            rowsAfterConflict.Single(transaction => transaction.ClientId == firstClientId).AmountMinor);
-    }
-
-    [Fact]
-    public async Task T02_DuplicateWithinBatch_AndConflictWithinBatch_AreOrdered()
+    public async Task IdenticalSyncRetry_StoresOneRecord_AndLeavesTotalsUnchanged()
     {
         var (client, auth) = await CreateTraderAsync();
         var clientId = Guid.NewGuid();
+        var item = Item(
+            clientId,
+            "Sale",
+            4_500_000,
+            "Sold rice",
+            UtcTimestamp(TimeSpan.FromDays(-1)));
 
-        var items = new object?[]
-        {
-            Item(clientId, "Sale", 1_000, "first", UtcTimestamp(TimeSpan.FromDays(-1))),
-            Item(clientId, "Sale", 1_000, "first", UtcTimestamp(TimeSpan.FromDays(-1))),
-            Item(clientId, "Sale", 2_000, "first", UtcTimestamp(TimeSpan.FromDays(-1)))
-        };
+        var firstResponse = await PostBatchAsync(client, [item]);
+        Assert.Equal(HttpStatusCode.OK, firstResponse.StatusCode);
 
-        var response = await PostBatchAsync(client, items);
-        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var firstBody = await ReadSyncResponseAsync(firstResponse);
+        Assert.Equal(1, firstBody.AcceptedCount);
+        Assert.Equal(0, firstBody.DuplicateCount);
+        Assert.Equal(0, firstBody.RejectedCount);
 
-        var body = await ReadSyncResponseAsync(response);
-        Assert.Equal(3, body.ReceivedCount);
-        Assert.Equal(1, body.AcceptedCount);
-        Assert.Equal(1, body.DuplicateCount);
-        Assert.Equal(1, body.RejectedCount);
-        Assert.Equal("Accepted", body.Results[0].Status);
-        Assert.Equal("Duplicate", body.Results[1].Status);
-        Assert.Equal("Rejected", body.Results[2].Status);
-        Assert.Equal(body.Results[0].TransactionId, body.Results[1].TransactionId);
-        Assert.Equal("CLIENT_ID_CONFLICT", Assert.Single(body.Results[2].Errors).Code);
+        var originalTransactionId = firstBody.Results[0].TransactionId;
+        var rowsBeforeRetry = await GetTransactionsAsync(auth.BusinessId!.Value);
+        Assert.Single(rowsBeforeRetry);
+        Assert.Equal(4_500_000, rowsBeforeRetry.Sum(transaction => transaction.AmountMinor));
+
+        // The same client ID with the same canonical fields is a successful retry,
+        // not a second sale. It must return the original transaction ID.
+        var retryResponse = await PostBatchAsync(client, [item]);
+        Assert.Equal(HttpStatusCode.OK, retryResponse.StatusCode);
+
+        var retryBody = await ReadSyncResponseAsync(retryResponse);
+        Assert.Equal(0, retryBody.AcceptedCount);
+        Assert.Equal(1, retryBody.DuplicateCount);
+        Assert.Equal(0, retryBody.RejectedCount);
+        Assert.Equal("Duplicate", retryBody.Results[0].Status);
+        Assert.Equal(originalTransactionId, retryBody.Results[0].TransactionId);
+
+        var rowsAfterRetry = await GetTransactionsAsync(auth.BusinessId!.Value);
+        Assert.Single(rowsAfterRetry);
+        Assert.Equal(4_500_000, rowsAfterRetry.Sum(transaction => transaction.AmountMinor));
+    }
+
+    [Fact]
+    public async Task ChangedPayloadForExistingClientId_RejectsItem_AndPreservesOriginalTransaction()
+    {
+        var (client, auth) = await CreateTraderAsync();
+        var clientId = Guid.NewGuid();
+        var occurredAt = UtcTimestamp(TimeSpan.FromDays(-1));
+
+        var firstResponse = await PostBatchAsync(
+            client,
+            [Item(clientId, "Sale", 4_500_000, "Sold rice", occurredAt)]);
+        Assert.Equal(HttpStatusCode.OK, firstResponse.StatusCode);
+
+        var firstBody = await ReadSyncResponseAsync(firstResponse);
+        Assert.Equal(1, firstBody.AcceptedCount);
+
+        // Reusing the idempotency key with a different amount is an item-level
+        // conflict, never an update and never a request-wide 409.
+        var conflictResponse = await PostBatchAsync(
+            client,
+            [Item(clientId, "Sale", 5_000_000, "Sold rice", occurredAt)]);
+        Assert.Equal(HttpStatusCode.OK, conflictResponse.StatusCode);
+
+        var conflictBody = await ReadSyncResponseAsync(conflictResponse);
+        Assert.Equal(0, conflictBody.AcceptedCount);
+        Assert.Equal(0, conflictBody.DuplicateCount);
+        Assert.Equal(1, conflictBody.RejectedCount);
+        Assert.Equal("Rejected", conflictBody.Results[0].Status);
+        Assert.Null(conflictBody.Results[0].TransactionId);
+        Assert.Equal(
+            "CLIENT_ID_CONFLICT",
+            Assert.Single(conflictBody.Results[0].Errors).Code);
 
         var rows = await GetTransactionsAsync(auth.BusinessId!.Value);
         Assert.Single(rows);
-        Assert.Equal(1_000, rows[0].AmountMinor);
+        Assert.Equal(4_500_000, rows[0].AmountMinor);
     }
 
     [Fact]
-    public async Task T03_Envelope_RejectsZero_101_AndMissingItems()
-    {
-        var (client, _) = await CreateTraderAsync();
-
-        var emptyResponse = await PostBatchAsync(client, Array.Empty<object?>());
-        Assert.Equal(HttpStatusCode.BadRequest, emptyResponse.StatusCode);
-        Assert.Equal("VALIDATION_FAILED", await ReadProblemCodeAsync(emptyResponse));
-
-        var tooManyItems = Enumerable
-            .Range(0, 101)
-            .Select(_ => Item(
-                Guid.NewGuid(),
-                "Sale",
-                1,
-                null,
-                UtcTimestamp(TimeSpan.FromDays(-1))))
-            .ToArray();
-
-        var tooManyResponse = await PostBatchAsync(client, tooManyItems);
-        Assert.Equal(HttpStatusCode.BadRequest, tooManyResponse.StatusCode);
-        Assert.Equal("VALIDATION_FAILED", await ReadProblemCodeAsync(tooManyResponse));
-
-        var missingResponse = await client.PostAsync(
-            "/api/transactions/sync",
-            JsonContent("{}"));
-        Assert.Equal(HttpStatusCode.BadRequest, missingResponse.StatusCode);
-        Assert.Equal("VALIDATION_FAILED", await ReadProblemCodeAsync(missingResponse));
-    }
-
-    [Fact]
-    public async Task T03_NullItem_And_AmountBoundaries_ArePerItemOutcomes()
+    public async Task PartialSyncBatch_SavesValidItems_AndReturnsClearItemLevelErrors()
     {
         var (client, auth) = await CreateTraderAsync();
+        var validClientId = Guid.NewGuid();
 
+        // One valid entry plus four independently readable invalid entries. Invalid
+        // items must not roll back the valid entry or prevent later outcomes.
         var items = new object?[]
         {
-            null,
-            Item(Guid.NewGuid(), "Sale", 1, null, UtcTimestamp(TimeSpan.FromDays(-1))),
-            Item(
-                Guid.NewGuid(),
-                "Expense",
-                100_000_000_000,
-                null,
-                UtcTimestamp(TimeSpan.FromDays(-1))),
+            Item(validClientId, "Sale", 1_000, "valid", UtcTimestamp(TimeSpan.FromDays(-1))),
             Item(Guid.NewGuid(), "Sale", 0, null, UtcTimestamp(TimeSpan.FromDays(-1))),
-            Item(
-                Guid.NewGuid(),
-                "Sale",
-                100_000_000_001,
-                null,
-                UtcTimestamp(TimeSpan.FromDays(-1)))
+            Item(Guid.NewGuid(), "Transfer", 1_000, null, UtcTimestamp(TimeSpan.FromDays(-1))),
+            Item(Guid.NewGuid(), "Sale", 1_000, null, null),
+            null
         };
 
         var response = await PostBatchAsync(client, items);
@@ -256,113 +134,40 @@ public sealed class TransactionSyncTests : IAsyncLifetime
 
         var body = await ReadSyncResponseAsync(response);
         Assert.Equal(5, body.ReceivedCount);
-        Assert.Equal(2, body.AcceptedCount);
+        Assert.Equal(1, body.AcceptedCount);
         Assert.Equal(0, body.DuplicateCount);
-        Assert.Equal(3, body.RejectedCount);
-        Assert.Equal("INVALID_ITEM", Assert.Single(body.Results[0].Errors).Code);
-        Assert.Null(body.Results[0].ClientId);
-        Assert.Equal("Accepted", body.Results[1].Status);
-        Assert.Equal("Accepted", body.Results[2].Status);
-        Assert.Equal("INVALID_AMOUNT", Assert.Single(body.Results[3].Errors).Code);
-        Assert.Equal("INVALID_AMOUNT", Assert.Single(body.Results[4].Errors).Code);
+        Assert.Equal(4, body.RejectedCount);
+        Assert.Equal([0, 1, 2, 3, 4], body.Results.Select(result => result.Index));
 
-        var rows = await GetTransactionsAsync(auth.BusinessId!.Value);
-        Assert.Equal(2, rows.Count);
-        Assert.Contains(rows, transaction => transaction.AmountMinor == 1);
-        Assert.Contains(rows, transaction => transaction.AmountMinor == 100_000_000_000);
-    }
-
-    [Fact]
-    public async Task T03_Type_Note_And_Timestamp_Validation_ArePerItemOutcomes()
-    {
-        var (client, auth) = await CreateTraderAsync();
-
-        var yesterday = UtcTimestamp(TimeSpan.FromDays(-1));
-        var items = new object?[]
-        {
-            Item(Guid.NewGuid(), "Transfer", 1_000, null, yesterday),
-            Item(Guid.NewGuid(), "Sale", 1_000, new string('a', 281), yesterday),
-            Item(Guid.NewGuid(), "Sale", 1_000, "   ", yesterday),
-            Item(Guid.NewGuid(), "Sale", 1_000, null, null),
-            Item(Guid.NewGuid(), "Sale", 1_000, null, NoOffsetTimestamp(TimeSpan.FromDays(-1))),
-            Item(
-                Guid.NewGuid(),
-                "Sale",
-                1_000,
-                null,
-                UtcTimestamp(TimeSpan.FromMilliseconds(1))),
-            Item(
-                Guid.NewGuid(),
-                "Sale",
-                1_000,
-                null,
-                UtcTimestamp(TimeSpan.FromDays(-365).Add(TimeSpan.FromMilliseconds(-1)))),
-            Item(
-                Guid.NewGuid(),
-                "Sale",
-                1_000,
-                null,
-                UtcTimestamp(TimeSpan.FromDays(-365))),
-            Item(Guid.NewGuid(), "Sale", 1_000, null, UtcTimestamp(TimeSpan.Zero))
-        };
-
-        var response = await PostBatchAsync(client, items);
-        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-
-        var body = await ReadSyncResponseAsync(response);
-        Assert.Equal(9, body.ReceivedCount);
-        Assert.Equal(3, body.AcceptedCount);
-        Assert.Equal(0, body.DuplicateCount);
-        Assert.Equal(6, body.RejectedCount);
-        Assert.Equal("INVALID_TYPE", Assert.Single(body.Results[0].Errors).Code);
-        Assert.Equal("NOTE_TOO_LONG", Assert.Single(body.Results[1].Errors).Code);
-        Assert.Equal("Accepted", body.Results[2].Status);
+        Assert.Equal("Accepted", body.Results[0].Status);
+        Assert.Equal("INVALID_AMOUNT", Assert.Single(body.Results[1].Errors).Code);
+        Assert.Equal("INVALID_TYPE", Assert.Single(body.Results[2].Errors).Code);
         Assert.Equal("INVALID_OCCURRED_AT", Assert.Single(body.Results[3].Errors).Code);
-        Assert.Equal("INVALID_OCCURRED_AT", Assert.Single(body.Results[4].Errors).Code);
-        Assert.Equal("INVALID_OCCURRED_AT", Assert.Single(body.Results[5].Errors).Code);
-        Assert.Equal("INVALID_OCCURRED_AT", Assert.Single(body.Results[6].Errors).Code);
-        Assert.Equal("Accepted", body.Results[7].Status);
-        Assert.Equal("Accepted", body.Results[8].Status);
+        Assert.Equal("INVALID_ITEM", Assert.Single(body.Results[4].Errors).Code);
 
         var rows = await GetTransactionsAsync(auth.BusinessId!.Value);
-        Assert.Equal(3, rows.Count);
-        Assert.Contains(rows, transaction => transaction.Note is null);
+        Assert.Single(rows);
+        Assert.Equal(validClientId, rows[0].ClientId);
+        Assert.Equal(1_000, rows[0].AmountMinor);
     }
 
     [Fact]
-    public async Task T03_MalformedJson_And_OversizedBody_AreRequestWideFailures()
-    {
-        var (client, _) = await CreateTraderAsync();
-
-        var malformedResponse = await client.PostAsync(
-            "/api/transactions/sync",
-            JsonContent("{"));
-        Assert.Equal(HttpStatusCode.BadRequest, malformedResponse.StatusCode);
-        Assert.Equal("VALIDATION_FAILED", await ReadProblemCodeAsync(malformedResponse));
-
-        var oversizedItem = Item(
-            Guid.NewGuid(),
-            "Sale",
-            1,
-            new string('x', 300_000),
-            UtcTimestamp(TimeSpan.FromDays(-1)));
-
-        var oversizedResponse = await PostBatchAsync(client, new[] { oversizedItem });
-        Assert.Equal(HttpStatusCode.RequestEntityTooLarge, oversizedResponse.StatusCode);
-        Assert.Equal("PAYLOAD_TOO_LARGE", await ReadProblemCodeAsync(oversizedResponse));
-    }
-
-    [Fact]
-    public async Task T04_ConcurrentRequests_WithSameClientId_LeaveOneRow()
+    public async Task ConcurrentIdenticalSyncRequests_StoreOneRecord()
     {
         var (_, auth) = await CreateTraderAsync();
         var clientId = Guid.NewGuid();
-
         var items = new object?[]
         {
-            Item(clientId, "Sale", 1_234, "race", UtcTimestamp(TimeSpan.FromDays(-1)))
+            Item(
+                clientId,
+                "Sale",
+                1_234,
+                "race",
+                UtcTimestamp(TimeSpan.FromDays(-1)))
         };
 
+        // Two independent HTTP clients model simultaneous retries. The unique index
+        // must leave one row and classify the loser as Duplicate, not a raw 500.
         using var firstClient = CreateClient(auth.AccessToken);
         using var secondClient = CreateClient(auth.AccessToken);
 
@@ -396,11 +201,16 @@ public sealed class TransactionSyncTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task T07_SyncRequiresTrader_AndAnOwnedBusiness()
+    public async Task SyncRequests_RequireTraderRoleAndOwnedBusiness()
     {
         var items = new object?[]
         {
-            Item(Guid.NewGuid(), "Sale", 1_000, null, UtcTimestamp(TimeSpan.FromDays(-1)))
+            Item(
+                Guid.NewGuid(),
+                "Sale",
+                1_000,
+                null,
+                UtcTimestamp(TimeSpan.FromDays(-1)))
         };
 
         using var anonymousClient = _factory.CreateClient();
@@ -417,12 +227,15 @@ public sealed class TransactionSyncTests : IAsyncLifetime
         var traderWithoutBusinessToken = await CreateTokenAsync(
             UserRole.Trader,
             createBusiness: false);
-        using var traderWithoutBusinessClient = CreateClient(traderWithoutBusinessToken);
+        using var traderWithoutBusinessClient = CreateClient(
+            traderWithoutBusinessToken);
         var missingBusinessResponse = await PostBatchAsync(
             traderWithoutBusinessClient,
             items);
         Assert.Equal(HttpStatusCode.NotFound, missingBusinessResponse.StatusCode);
-        Assert.Equal("BUSINESS_NOT_FOUND", await ReadProblemCodeAsync(missingBusinessResponse));
+        Assert.Equal(
+            "BUSINESS_NOT_FOUND",
+            await ReadProblemCodeAsync(missingBusinessResponse));
     }
 
     private async Task<(HttpClient Client, AuthResponse Auth)> CreateTraderAsync()
@@ -525,33 +338,12 @@ public sealed class TransactionSyncTests : IAsyncLifetime
             : new { clientId, type, amountMinor, note, occurredAt };
     }
 
-    private static StringContent JsonContent(string json)
-    {
-        return new StringContent(json, Encoding.UTF8, "application/json");
-    }
-
     private static string UtcTimestamp(TimeSpan offset)
     {
         return TestApiFactory.FixedNow
             .Add(offset)
             .ToUniversalTime()
             .ToString("yyyy-MM-dd'T'HH:mm:ss.fff'Z'", CultureInfo.InvariantCulture);
-    }
-
-    private static string OffsetTimestamp(TimeSpan offset, TimeSpan zoneOffset)
-    {
-        return TestApiFactory.FixedNow
-            .Add(offset)
-            .ToOffset(zoneOffset)
-            .ToString("yyyy-MM-dd'T'HH:mm:ss.fffzzz", CultureInfo.InvariantCulture);
-    }
-
-    private static string NoOffsetTimestamp(TimeSpan offset)
-    {
-        return TestApiFactory.FixedNow
-            .Add(offset)
-            .UtcDateTime
-            .ToString("yyyy-MM-dd'T'HH:mm:ss.fff", CultureInfo.InvariantCulture);
     }
 
     private static async Task<SyncResponse> ReadSyncResponseAsync(

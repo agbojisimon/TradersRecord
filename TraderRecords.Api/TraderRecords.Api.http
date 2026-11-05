@@ -107,6 +107,13 @@ Authorization: Bearer {{Token}}
 
 ###
 
+# Requires a Trader token. Returns eight Lagos weeks and the consistency indicator.
+GET {{HostAddress}}/api/businesses/me/summary
+Accept: application/json
+Authorization: Bearer {{Token}}
+
+###
+
 GET {{HostAddress}}/api/health
 Accept: application/json
 Authorization: Bearer {{Token}}

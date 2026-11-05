@@ -1,12 +1,12 @@
 # Trader Records API
 
-Gate 4 transaction-sync slice for the Trader Records API. The repository contains
-one ASP.NET Core 9 controller-based API project organised into `API`,
-`Application`, `Infrastructure`, and `Domain` folders, plus a sibling xUnit test
-project. Entities, EF Core SQLite mappings, the initial migration, idempotent
-development seeding, registration, login, JWT authentication, retry-safe
-transaction sync, and shared ProblemDetails error handling are implemented.
-Summaries and consent endpoints are not implemented yet.
+Gate 5 summary slice for the Trader Records API. The repository contains one
+ASP.NET Core 9 controller-based API project organised into `API`, `Application`,
+`Infrastructure`, and `Domain` folders, plus a sibling xUnit test project.
+Entities, EF Core SQLite mappings, the initial migration, idempotent development
+seeding, registration, login, JWT authentication, retry-safe transaction sync,
+the eight-week trader summary, and shared ProblemDetails error handling are
+implemented. Consent and lender summary endpoints are not implemented yet.
 
 ## Prerequisites
 
@@ -61,10 +61,11 @@ With the process running, open or request:
 - Register: `POST http://localhost:5080/api/auth/register`
 - Login: `POST http://localhost:5080/api/auth/login`
 - Transaction sync: `POST http://localhost:5080/api/transactions/sync`
+- Trader summary: `GET http://localhost:5080/api/businesses/me/summary`
 
 Scalar includes a bearer authentication field. Paste the `accessToken` returned
-by register or login to call protected endpoints. The sync endpoint requires a
-Trader token; a Lender token returns `403 FORBIDDEN`.
+by register or login to call protected endpoints. Sync and owner-summary routes
+require a Trader token; a Lender token returns `403 FORBIDDEN`.
 
 After the first successful restore, the API and test `packages.lock.json` files
 are committed. Reviewers can then verify the locked graph and run the automated
@@ -163,6 +164,30 @@ saved, so the client should retry the full batch safely.
 The example timestamps must be recent past values when manually testing. If the
 example is older than 365 days, replace them with a timestamp from the last year.
 
+## Trader summary
+
+`GET /api/businesses/me/summary` returns the authenticated trader's cash-flow
+summary for the current Africa/Lagos calendar week plus the preceding seven weeks.
+Weeks start Monday at 00:00 Lagos time; the response exposes the equivalent UTC
+window boundaries. The current week is partial and only includes occurrences up to
+the captured server time.
+
+Totals use integer kobo. `weekly` always contains eight chronological buckets,
+including empty weeks, with `recordedDays` counting distinct Lagos occurrence
+dates. The record-consistency indicator is deterministic:
+
+```text
+score = roundAwayFromZero(
+    50 * activeDays / 56
+  + 30 * activeWeeks / 8
+  + 20 * historySpanWeeks / 8
+)
+```
+
+The score is clamped to 0-100. Empty history returns zero totals and score zero.
+The disclaimer is returned with every summary; the indicator measures recording
+coverage, not verified income or creditworthiness.
+
 ## Later gates
 
-Summary, consent, and delivery remain to be implemented.
+Consent, lender summary, and delivery remain to be implemented.
