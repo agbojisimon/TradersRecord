@@ -63,7 +63,6 @@ With the process running, open or request:
 
 - Scalar UI: `http://localhost:5080/scalar/` (`/scalar` redirects here)
 - OpenAPI document: `http://localhost:5080/openapi/v1.json`
-- Exported OpenAPI snapshot: `docs/openapi.json`
 - Liveness endpoint: `http://localhost:5080/api/health`
 - Register: `POST http://localhost:5080/api/auth/register`
 - Login: `POST http://localhost:5080/api/auth/login`
@@ -78,10 +77,10 @@ by register or login to call protected endpoints. Sync, owner-summary, and
 consent routes require a Trader token; the lender-summary route requires a
 Lender token. A wrong-role request returns `403 FORBIDDEN`.
 
-The generated OpenAPI snapshot documents all seven controller paths, the Bearer
+The generated OpenAPI document exposes all seven controller paths, the Bearer
 scheme, and role restrictions, but it uses ASP.NET Core's default response media
 types (`text/plain`, `application/json`, `text/json`). Runtime errors use
-`application/problem+json`. The snapshot has no explicit examples and does not
+`application/problem+json`. The document has no explicit examples and does not
 document the unexpected-exception 500 response.
 
 After the first successful restore, the API and test `packages.lock.json` files
@@ -255,24 +254,13 @@ access. The lender summary uses the same eight-week calculation and response
 contract as the Trader's own summary. Consent covers summary data only, not raw
 transaction notes or credentials.
 
-## Delivery documentation
-
-- Source of truth: [`Trader_Records_API_Source_of_Truth.md`](Trader_Records_API_Source_of_Truth.md)
-  and [`docs/Trader_Records_API_Source_of_Truth_v1.pdf`](docs/Trader_Records_API_Source_of_Truth_v1.pdf)
-- Implementation status and branch/PR mapping: [`docs/implementation-status.md`](docs/implementation-status.md)
-- Exported OpenAPI snapshot: [`docs/openapi.json`](docs/openapi.json)
-- Functional requirements document: [`docs/TraderRecords_Functional_Requirements.docx`](docs/TraderRecords_Functional_Requirements.docx)
-- Engineering defence guide: [`docs/TraderRecords_Backend_Engineering_Defence_Guide.docx`](docs/TraderRecords_Backend_Engineering_Defence_Guide.docx)
-- Walkthrough script: [`docs/walkthrough-script.md`](docs/walkthrough-script.md)
-- Walkthrough and rehearsal PDF: [`docs/TraderRecords_Walkthrough_and_Rehearsal_Guide.pdf`](docs/TraderRecords_Walkthrough_and_Rehearsal_Guide.pdf)
-
 ## Submission status
 
 - Repository: `https://github.com/agbojisimon/TradersRecord`
 - Walkthrough video: **not yet published**. No placeholder URL is presented as live.
-- Clean-checkout restore, build, the 18-test delivery suite, the separate
-  authentication test branch (11 tests), and a separate-database API smoke run
-  have been completed.
+- Clean-checkout restore, build, and the 21-test suite have been completed.
+- Private specification and delivery artifacts are intentionally excluded from
+  version control.
 
 The remaining manual delivery step is to record and publish the 3-5 minute
-walkthrough video, then submit the repository and video URLs.
+walkthrough video, then submit the repository and video URL.

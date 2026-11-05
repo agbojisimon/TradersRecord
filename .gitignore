@@ -24,6 +24,13 @@ App_Data/
 .env.*
 *.secret
 secrets.json
+development.settings.json
+appsettings.Development.json
+
+# Private specification and delivery documents
+Trader_Records_API_Source_of_Truth.md
+Trader_Records_API_Source_of_Truth_v1.pdf
+docs/
 
 # Logs and OS metadata
 *.log
